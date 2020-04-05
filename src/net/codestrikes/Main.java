@@ -2,9 +2,11 @@ package net.codestrikes;
 
 import net.codestrikes.bots.Boxer;
 import net.codestrikes.bots.Kickboxer;
-import net.codestrikes.sdk.Fight;
-import net.codestrikes.sdk.FightResults;
-import net.codestrikes.sdk.StandardGameLogic;
+import net.codestrikes.sdk.*;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 public class Main {
 
@@ -25,6 +27,6 @@ public class Main {
         result = fight.execute();
         System.out.println(String.format("Result: %s", result));
 
-        System.out.println();
     }
+
 }

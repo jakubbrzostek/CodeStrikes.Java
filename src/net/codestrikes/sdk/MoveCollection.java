@@ -17,4 +17,5 @@ public class MoveCollection extends ReadonlyMoveCollection {
         moveList.remove(move);
         return this;
     }
+
 }

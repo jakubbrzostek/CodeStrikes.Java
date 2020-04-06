@@ -6,40 +6,111 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static java.util.Map.entry;
-
 public class PlayerBot extends BotBase {
     private int myScoreTotal = 0;
     private int opponentScoreTotal = 0;
-//    private int roundCounter = 100;
-
-    private Map<Area, Integer> attackEnergyMap = Map.ofEntries(
-            entry(Area.HookKick, 4),
-            entry(Area.HookPunch, 3),
-            entry(Area.UppercutPunch, 2),
-            entry(Area.LowKick, 1)
-    );
-
-    private Map<Area, Integer> defenceEnergyMap = Map.ofEntries(
-            entry(Area.HookKick, 4),
-            entry(Area.HookPunch, 4),
-            entry(Area.UppercutPunch, 4),
-            entry(Area.LowKick, 4)
-    );
-
 
     private List<RoundContext> opponentsMoves = new ArrayList<RoundContext>();
 
-//    private Area changeDefence(Area oldDefence) {
-//        return (oldDefence == Area.HookKick) ? Area.HookPunch : Area.HookKick;
-//    }
+    private int attackExpUsed(RoundContext context) {
+        int attackExpCount = 0;
 
-    private Area createRandomAttack() {
-        return new Random().nextDouble() > 0.5d ? Area.LowKick : Area.HookPunch;
+        for (Move element : context.getMyMoves().getAttacks()) {
+            attackExpCount += element.getEnergy();
+        }
+
+        return attackExpCount;
     }
 
-    private void changeCurrentContext(RoundContext context, Area deleteElement, Area addElement) {
+    private int defenceExpUsed(RoundContext context) {
+        int defenceExpCount = 0;
 
+        for (Move element : context.getMyMoves().getDefences()) {
+            defenceExpCount += element.getEnergy();
+        }
+
+        return defenceExpCount;
+    }
+
+    private boolean checkExpExceed(RoundContext context) {
+        return attackExpUsed(context) + defenceExpUsed(context) <= 12;
+    }
+
+    private int expLeft(RoundContext context) {
+        return 12 - attackExpUsed(context) + defenceExpUsed(context);
+    }
+
+    private void changeCurrentDefenceContext(RoundContext context, Area addElement) {
+
+        // check if my current context don't contains defence I want to add
+        if (!context.getMyMoves().hasDefence(addElement)) {
+            // I need to check if I don't exceed EXP
+            Move tmpMove = new Move(MoveType.Defense, addElement);
+
+            if (expLeft(context) >= tmpMove.getEnergy()) {
+                context.getMyMoves().addDefence(addElement);
+            } else {
+                // because EXP would be exceeded I need to delete enough elements to add necessary defence
+                // we also need to check if my context contains any defence
+                if (context.getMyMoves().getDefences().length > 0) {
+                    for (Move element : context.getMyMoves().getDefences()) {
+                        context.getMyMoves().remove(element);
+                        context.getMyMoves().addDefence(addElement);
+                        break;
+                    }
+                } else {
+                    // so I need to delete enough attacks to be able to add defence
+                    for (Move element : context.getMyMoves().getAttacks()) {
+                        // I need to be careful and avoid deleting most valuable attack
+                        if (element.getArea() != findMovesByDefenceAnalyze()) {
+                            context.getMyMoves().remove(element);
+                            if (expLeft(context) >= 4) {
+                                context.getMyMoves().addDefence(addElement);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void changeCurrentAttackContext(RoundContext context, Area addElement) {
+
+        // check if my current context don't contains defence I want to add
+        if (Arrays.stream(context.getMyMoves().getAttacks()).noneMatch(i -> i.getArea() == addElement)) {
+            // I need to check if I don't exceed EXP
+            Move tmpMove = new Move(MoveType.Attack, addElement);
+
+            if (expLeft(context) >= tmpMove.getEnergy()) {
+                context.getMyMoves().addAttack(addElement);
+            } else {
+                // because EXP would be exceeded I need to delete enough elements to add necessary attack
+                // we also need to check if my context contains any defence
+                if (context.getMyMoves().getDefences().length > 0) {
+                    for (Move element : context.getMyMoves().getDefences()) {
+                        context.getMyMoves().remove(element);
+                        //check if it's possible to add more than once
+                        for (int i = expLeft(context); i <= tmpMove.getEnergy(); i -= tmpMove.getEnergy()) {
+                            context.getMyMoves().addAttack(addElement);
+                        }
+                        break;
+                    }
+                } else {
+                    // so I need to delete enough attacks to be able to add another attack
+                    for (Move element : context.getMyMoves().getAttacks()) {
+                        // I need to be careful and avoid deleting most valuable attack
+                        if (element.getArea() != findMovesByDefenceAnalyze()) {
+                            context.getMyMoves().remove(element);
+                            if (expLeft(context) >= tmpMove.getEnergy()) {
+                                context.getMyMoves().addAttack(addElement);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private void createAggressiveAttack(RoundContext context) {
@@ -63,6 +134,14 @@ public class PlayerBot extends BotBase {
 
     private void createFullDefence(RoundContext context) {
 
+        for (Move element : context.getMyMoves().getAttacks()) {
+            context.getMyMoves().remove(element);
+        }
+
+        for (Move element : context.getMyMoves().getDefences()) {
+            context.getMyMoves().remove(element);
+        }
+
         context.getMyMoves()
                 .addDefence(Area.HookKick)
                 .addDefence(Area.HookPunch)
@@ -72,7 +151,7 @@ public class PlayerBot extends BotBase {
     private Area findMovesByAttackAnalyze() {
 
         List<Move> tmpList = new ArrayList<>();
-        Map.Entry<Move, Long> mostPopularMove;
+        Map.Entry<Move, Long> mostPopularAttack;
 
         for (RoundContext element : opponentsMoves) {
             if (element.getLastOpponentMoves() != null) {
@@ -80,16 +159,16 @@ public class PlayerBot extends BotBase {
             }
         }
 
-        mostPopularMove = (tmpList.stream().collect(Collectors.groupingBy(Function.identity(), Collectors.counting()))
-                .entrySet().stream().max(Comparator.comparing(Map.Entry::getValue)).orElse(null));
+        mostPopularAttack = (tmpList.stream().collect(Collectors.groupingBy(Function.identity(), Collectors.counting()))
+                .entrySet().stream().max(Map.Entry.comparingByValue()).orElse(null));
 
-        return Objects.requireNonNull(mostPopularMove).getKey().getArea();
+        return Objects.requireNonNull(mostPopularAttack).getKey().getArea();
     }
 
     private Area findMovesByDefenceAnalyze() {
 
         List<Move> tmpList = new ArrayList<>();
-        Map.Entry<Move, Long> mostPopularMove;
+        Map.Entry<Move, Long> leastPopularDefence;
 
         for (RoundContext element : opponentsMoves) {
             if (element.getLastOpponentMoves() != null) {
@@ -97,10 +176,10 @@ public class PlayerBot extends BotBase {
             }
         }
 
-        mostPopularMove = (tmpList.stream().collect(Collectors.groupingBy(Function.identity(), Collectors.counting()))
-                .entrySet().stream().min(Comparator.comparing(Map.Entry::getValue)).orElse(null));
+        leastPopularDefence = (tmpList.stream().collect(Collectors.groupingBy(Function.identity(), Collectors.counting()))
+                .entrySet().stream().min(Map.Entry.comparingByValue()).orElse(null));
 
-        return Objects.requireNonNull(mostPopularMove).getKey().getArea();
+        return Objects.requireNonNull(leastPopularDefence).getKey().getArea();
     }
 
     public MoveCollection nextMove(RoundContext context) {
@@ -109,37 +188,24 @@ public class PlayerBot extends BotBase {
         myScoreTotal += context.getMyDamage();
         opponentScoreTotal += context.getOpponentDamage();
 
-        if (myLifeLeft > opponentsLifeLeft) {
-            if (Arrays.stream(context.getLastOpponentMoves().getDefences()).noneMatch(i -> i.getArea() == Area.HookKick)) {
+        if (myLifeLeft > opponentsLifeLeft || myScoreTotal == 0) {
+            if (!context.getLastOpponentMoves().hasDefence(Area.HookKick)) {
                 createTotalAttack(context);
             } else {
                 createAggressiveAttack(context);
             }
-
-            //If my defence don't contains most popular opponent attack, change my defence
-        } else if (!context.getMyMoves().hasDefence(findMovesByAttackAnalyze())) {
-            Area defence = Area.UppercutPunch;
-            if (context.getMyMoves().getDefences() == null) {
-                defence = findMovesByAttackAnalyze();
-                context.getMyMoves().addDefence(defence);
-            } else {
-                defence = findMovesByAttackAnalyze();
-            }
+        // I'll analyze opponents move to set up my attack and defence
+        } else if (
+                !context.getMyMoves().hasDefence(findMovesByAttackAnalyze()) ||
+                Arrays.stream(context.getMyMoves().getAttacks()).noneMatch(i -> i.getArea() == findMovesByDefenceAnalyze())
+        ) {
+                changeCurrentAttackContext(context,findMovesByDefenceAnalyze());
+                changeCurrentDefenceContext(context,findMovesByAttackAnalyze());
         }
-        //If my attack don't contains least popular opponent defence, change my attack
-        else if (Arrays.stream(context.getMyMoves().getAttacks()).noneMatch(i -> i.getArea() == findMovesByDefenceAnalyze())) {
-
-        }
-
         // Only if I'll won by blocking everything besides LowKicks
-        else if (myLifeLeft - opponentsMoves.size() * 12 > opponentsLifeLeft) {
-            context.getMyMoves()
-                    .addDefence(Area.HookKick)
-                    .addDefence(Area.HookPunch)
-                    .addDefence(Area.UppercutPunch);
+        else if (myLifeLeft - (100 - opponentsMoves.size()) * 12 > opponentsLifeLeft) {
+            createFullDefence(context);
         }
-
-
         opponentsMoves.add(context);
 
         if (opponentsMoves.size() >= 100) {
